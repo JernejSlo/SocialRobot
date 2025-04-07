@@ -473,7 +473,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             if found_with_search:
                 print("Found the object with search 1.")
-                return
+
 
             bbox = np.asarray(bboxes[0])
 
@@ -487,7 +487,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             if found_with_search:
                 print("Found the object with search 2.")
-                return
+
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
 
             if found_with_search:
@@ -605,7 +605,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
     def check_board_for_object(self, objects_to_find):
 
-        points = [[205,-52],[425,-52]]
+        points = [[205,-52],[315,-52],[425,-52]]
         grab_object = False
         for (x,y) in points:
             self.move_x_y(x,y)
