@@ -1,6 +1,6 @@
 import os
 import sys
-
+import traceback
 import cv2
 import keyboard
 import matplotlib.pyplot as plt
@@ -8,7 +8,9 @@ import numpy as np
 from ultralytics import YOLO
 from xarm.wrapper import XArmAPI
 import time
-
+import atexit
+from skimage.morphology import medial_axis
+import math
 from Utils.VoiceRecognitionUtils import VoiceRecognitionUtils
 from Utils.LLMUtils import LLMUtils
 
@@ -16,7 +18,7 @@ from Utils.LLMUtils import LLMUtils
 class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
     def __init__(self, config, **kwargs):
-
+        atexit.register(self.on_exit)
         VoiceRecognitionUtils.__init__(self)
         LLMUtils.__init__(self)
 
@@ -400,6 +402,32 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         print(bboxes,labels)
         return bboxes, labels, found_with_search
 
+    def save_image_bbox(self, bbox, img, save_path):
+        """
+        Save a cropped region of self.image defined by bbox to the given path.
+
+        :param bbox: Tuple (x1, y1, x2, y2) specifying the bounding box
+        :param path: File path to save the cropped image (e.g. 'cropped.jpg')
+        """
+        print(bbox)
+        x_min, y_min, x_max, y_max = bbox
+
+        # Make sure image exists
+        if img is None:
+            print("❌ self.image is not defined.")
+            return
+
+        # Crop the image
+        cropped = img[y_min:y_max, x_min:x_max]
+
+        # Save to path
+        success = cv2.imwrite(save_path, cropped)
+        if success:
+            print(f"✅ Cropped image saved to {save_path}")
+        else:
+            print(f"❌ Failed to save image to {save_path}")
+
+
 
     def align_with_center_of_bbox(self, bbox, rotate=False):
         """
@@ -418,7 +446,11 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         self.align_camera([x-self.camera_size[0]/2,y-self.camera_size[1]/2])
 
         if rotate:
-            angle = self.calculate_rotation(bbox)
+            img = cv2.imread("DetectionImage.jpg")
+            self.save_image_bbox(bbox, img, "SampleImagesForBBox/DetectionImageBBox.jpg")
+            img = cv2.imread("SampleImagesForBBox/DetectionImageBBox.jpg")
+            angle = self.calculate_rotation(img)
+            print(f"Rotating to angle {angle}")
             self.rotate_camera(angle)
 
 
@@ -436,31 +468,74 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             "z": z,
             "roll": roll,
             "pitch": pitch,
-            "yaw": yaw+angle,
+            "yaw": (yaw+abs(angle)) % 180,
             "speed": 100,  # Moderate speed
             "wait": True
         }
 
         self.move_robot(movement)
 
-
-    def calculate_rotation(self, bbox):
-        x1, y1, x2, y2 = bbox
-
-        # Load the image from file
-        image = cv2.imread("path/to/your/image.jpg")  # Replace with your actual path
-
+    def calculate_rotation(self, image):
         if image is None:
-            print("❌ Failed to load image.")
-            return None
+            print("Error: Image not found.")
+            return 0
 
-        # Crop the image to the bounding box
-        cropped = image[y1:y2, x1:x2]
-        cv2.imshow("Cropped", cropped)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        angle = self.get_angle_to_thinnest_side(cropped)
+        # Use blue channel for contrast
+        blue_channel = image[:, :, 0]
+        _, binary_image = cv2.threshold(blue_channel, 60, 255, cv2.THRESH_BINARY)
 
+        # Skeleton + distance transform
+        skeleton, distance = medial_axis(binary_image > 0, return_distance=True)
+
+        mask = skeleton & (distance > 0)
+        if not np.any(mask):
+            print("No skeleton detected.")
+            return 0
+
+        # Find thinnest point on skeleton
+        min_dist = np.min(distance[mask])
+        coords = np.column_stack(np.where((distance == min_dist) & mask))
+        cy, cx = coords[0]
+        radius = min_dist
+
+        # Estimate local direction with gradient
+        sobelx = cv2.Sobel(distance, cv2.CV_64F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(distance, cv2.CV_64F, 0, 1, ksize=3)
+
+        dx = sobelx[cy, cx]
+        dy = sobely[cy, cx]
+
+        if dx == 0 and dy == 0:
+            dx, dy = 1, 0  # fallback
+
+        norm = math.hypot(dx, dy)
+        dx /= norm
+        dy /= norm
+
+        # Get the endpoints of the shortest cross-section line
+        x1 = int(cx - radius * dx)
+        y1 = int(cy - radius * dy)
+        x2 = int(cx + radius * dx)
+        y2 = int(cy + radius * dy)
+
+        angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
+
+        # === Rotate the image based on the computed angle ===
+        (h, w) = image.shape[:2]
+        center = (w // 2, h // 2)
+
+        # Rotate image so the thinnest part aligns horizontally
+        rotation_matrix = cv2.getRotationMatrix2D(center, -angle, 1.0)
+        rotated = cv2.warpAffine(image, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=(255, 255, 255))
+
+        # Show the rotated image
+        plt.title(f"Rotated Image ({-angle:.2f}°)")
+        plt.imshow(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
+        plt.axis("off")
+        plt.show()
+
+        print(f"🌀 True thinnest cross-section angle: {angle:.2f}°")
         return angle
 
     def get_angle_to_thinnest_side(self,img):
@@ -490,13 +565,16 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             # test to see
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
             bbox = np.asarray(bboxes[0])
-            self.align_with_center_of_bbox(bbox,rotate=True)
+            self.align_with_center_of_bbox(bbox)
 
             if found_with_search:
                 print("Found the object with search 2.")
                 return
 
+
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
+            bbox = np.asarray(bboxes[0])
+            self.align_with_center_of_bbox(bbox, rotate=True)
 
             if found_with_search:
                 print("Found the object with search 3.")
@@ -508,6 +586,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             if not found_with_search:
                 print("Unable to find the selected object. Moving back to home position.")
                 print(f"Exception occurred: {e}")
+                traceback.print_exc()
             else:
                 print()
 
@@ -633,7 +712,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         object_ = command.get("object", "")
         target_ = command.get("target", "")
         if object_.lower() == "lemon":
-            self.detect_objects_and_move_to_first([object_],plot_detection=True)
+            self.detect_objects_and_move_to_first([object_.lower()],plot_detection=True)
 
 
     def check_for_command(self):
@@ -678,7 +757,8 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
         finally:
             self.cleanup()
-
+    def on_exit(self):
+        self.return_to_home()
 
 
 
@@ -728,6 +808,9 @@ Robot = SocialRobot(init_config,skip_connection=False)
 #listen_test()
 #test_board_check()
 test_grab_lemon()
+
+#img = cv2.imread("SampleImagesForBBox/DetectionImageBBox.jpg")
+#print(Robot.calculate_rotation(img))
 
 #test_calibrate()
 #test_warp()
