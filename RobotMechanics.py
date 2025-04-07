@@ -478,8 +478,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             if found_with_search:
                 print("Found the object with search 1.")
-
-                skip_search = True
+                return
 
             bbox = np.asarray(bboxes[0])
 
@@ -493,14 +492,13 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             if found_with_search:
                 print("Found the object with search 2.")
-                skip_search = True
+                return
 
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
 
             if found_with_search:
                 print("Found the object with search 3.")
-
-                skip_search = True
+                return
 
             self.open_grabber()
             self.move_tip_to_base(self.base_tip_xyz_dff_center)
