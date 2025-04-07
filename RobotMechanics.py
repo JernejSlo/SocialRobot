@@ -351,6 +351,8 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         # Define colors for each class
         colors = {}
         print(f"Searching for {objects_to_find}")
+        print("Result:")
+        print(results)
         # Draw the detected bounding boxes
         for result in results:
             names = [result.names[cls.item()] for cls in result.boxes.cls.int()]
@@ -395,7 +397,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             plt.imshow(image)
             plt.axis("off")
             plt.show()
-
+        print(bboxes,labels)
         return bboxes, labels, found_with_search
 
 
@@ -679,27 +681,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
 
 
-init_config = {
-    "ip": "192.168.65.203",
-    "model_path": "runs/detect/train12/weights/best.pt",
-}
-x_min, y_min, x_max, y_max = [0, 0, 50, 50]
 
-config = {
-    "movement": {
-        "x": 300,
-        "y": 0,
-        "z": 200,
-        "roll": 180,
-        "pitch": 0,
-        "yaw": 0,
-        "speed": 100,  # Moderate speed
-        "wait": True
-    },
-    "bbox": [x_min, y_min, x_max, y_max]
-}
-
-Robot = SocialRobot(init_config,skip_connection=False)
 
 
 def test_move(config):
@@ -725,7 +707,7 @@ def test_warp():
 
 def test_grab_lemon():
     #Robot.calibrate_position()
-    Robot.detect_objects_and_move_to_first(["Lemon"],plot_detection=True,skip_search=True)
+    Robot.detect_objects_and_move_to_first(["lemon"],plot_detection=True)
 
 def listen_test():
     Robot.wait_for_command()
@@ -733,13 +715,20 @@ def listen_test():
 def test_board_check():
     Robot.check_board_for_object(["Lemon"])
 
-Robot.find_camera_indices()
+init_config = {
+    "ip": "192.168.65.203",
+    "model_path": "runs/detect/train12/weights/best.pt",
+}
+
+
+Robot = SocialRobot(init_config,skip_connection=False)
+
+#Robot.find_camera_indices()
 
 #listen_test()
 #test_board_check()
 test_grab_lemon()
 
-#test_move(config)
 #test_calibrate()
 #test_warp()
 Robot.arm.disconnect()
