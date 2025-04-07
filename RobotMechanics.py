@@ -1,5 +1,5 @@
 import os
-import platform
+import sys
 
 import cv2
 import keyboard
@@ -108,9 +108,9 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
         if find_indices:
             self.find_camera_indices()
-        if platform.system() == "Windows":
+        if sys.platform.startswith("win"):
             cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
-        elif platform.system() == "Linux":
+        elif sys.platform.startswith("linux"):
             cap = cv2.VideoCapture(self.camera_index)
         else:
             cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
