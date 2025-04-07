@@ -725,7 +725,7 @@ def test_warp():
 
 def test_grab_lemon():
     #Robot.calibrate_position()
-    Robot.detect_objects_and_move_to_first(["Lemon"],plot_detection=True)
+    Robot.detect_objects_and_move_to_first(["Lemon"],plot_detection=True,skip_search=True)
 
 def listen_test():
     Robot.wait_for_command()
