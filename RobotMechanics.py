@@ -737,9 +737,9 @@ def test_board_check():
 
 Robot.find_camera_indices()
 
-listen_test()
+#listen_test()
 #test_board_check()
-#test_grab_lemon()
+test_grab_lemon()
 
 #test_move(config)
 #test_calibrate()
