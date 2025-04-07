@@ -9,7 +9,7 @@ from xarm.wrapper import XArmAPI
 import time
 
 from Utils.VoiceRecognitionUtils import VoiceRecognitionUtils
-from LLMUtils import LLMUtils
+from Utils.LLMUtils import LLMUtils
 
 
 class SocialRobot(VoiceRecognitionUtils,LLMUtils):
@@ -82,6 +82,17 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         self.model = YOLO(path)  # Ensure your trained model exists
         self.objects_that_can_be_detected = list(self.model.names.values())
 
+    def find_camera_indices(self):
+        for i in range(10):  # Check indices 0-9
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    print(f"Camera available at index {i}")
+                    cap.release()
+                    break
+            except:
+                print(f"Error opening camera {i}")
+
     def take_picture(self, **kwargs):
         """
         Captures an image from the camera, saves it as 'CalibrationImage.jpg',
@@ -90,6 +101,13 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         Returns:
         - str: Path to the saved image file.
         """
+
+
+        find_indices = kwargs.get("find_indices",False)
+
+        if find_indices:
+            self.find_camera_indices()
+
         cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
         #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # Set width
         #ap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # Set height
@@ -708,6 +726,8 @@ def listen_test():
 
 def test_board_check():
     Robot.check_board_for_object(["Lemon"])
+
+Robot.find_camera_indices()
 
 listen_test()
 #test_board_check()
