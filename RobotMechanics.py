@@ -1,4 +1,5 @@
 import os
+import platform
 
 import cv2
 import keyboard
@@ -107,8 +108,12 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
         if find_indices:
             self.find_camera_indices()
-
-        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        if platform.system() == "Windows":
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        elif platform.system() == "Linux":
+            cap = cv2.VideoCapture(self.camera_index)
+        else:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
         #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # Set width
         #ap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # Set height
         if not cap.isOpened():
@@ -474,6 +479,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             if found_with_search:
                 print("Found the object with search 1.")
 
+                skip_search = True
 
             bbox = np.asarray(bboxes[0])
 
@@ -487,12 +493,14 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             if found_with_search:
                 print("Found the object with search 2.")
+                skip_search = True
 
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
 
             if found_with_search:
                 print("Found the object with search 3.")
-                return
+
+                skip_search = True
 
             self.open_grabber()
             self.move_tip_to_base(self.base_tip_xyz_dff_center)
