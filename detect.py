@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 
 # Load the model
-model = YOLO()  # Loads trained model
+model = YOLO("runs//detect/train28/weights/best.pt")  # Loads trained model
 
 
 # Load the image
-image_path = "C:/Users/jerne/OneDrive/Slike/Mapa fotoaparata/LemonsMiza5.png"
+image_path = "./SR_Datasets/V1/test/images/d5ff874e-WIN_20250505_13_07_03_Pro.jpg"
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB for Matplotlib
 

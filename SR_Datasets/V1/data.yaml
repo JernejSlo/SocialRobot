@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 9
+names: ['Cucumber','Lemon','Mandarin','Palm','Peach','Pear','Red Bell Pepper','Strawberry','Yellow Bell Pepper']
+
+roboflow:
+  workspace: soham-ze0pd
+  project: lemon-nqquk
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/soham-ze0pd/lemon-nqquk/dataset/1

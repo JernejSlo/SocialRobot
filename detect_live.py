@@ -5,7 +5,7 @@ import numpy as np
 from ultralytics import YOLO
 
 # Load your trained YOLO model
-model = YOLO("runs/detect/train13/weights/best.pt")  # Ensure your trained model exists
+model = YOLO("runs//detect/train28/weights/best.pt")  # Ensure your trained model exists
 
 import cv2
 

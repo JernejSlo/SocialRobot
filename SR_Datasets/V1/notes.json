@@ -1,0 +1,45 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "Cucumber"
+    },
+    {
+      "id": 1,
+      "name": "Lemon"
+    },
+    {
+      "id": 2,
+      "name": "Mandarin"
+    },
+    {
+      "id": 3,
+      "name": "Palm"
+    },
+    {
+      "id": 4,
+      "name": "Peach"
+    },
+    {
+      "id": 5,
+      "name": "Pear"
+    },
+    {
+      "id": 6,
+      "name": "Red Bell Pepper"
+    },
+    {
+      "id": 7,
+      "name": "Strawberry"
+    },
+    {
+      "id": 8,
+      "name": "Yellow Bell Pepper"
+    }
+  ],
+  "info": {
+    "year": 2025,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}

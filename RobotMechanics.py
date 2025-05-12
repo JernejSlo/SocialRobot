@@ -11,16 +11,20 @@ import time
 import atexit
 from skimage.morphology import medial_axis
 import math
+
+from Utils.RotationUtils import RotationUtils
 from Utils.VoiceRecognitionUtils import VoiceRecognitionUtils
 from Utils.LLMUtils import LLMUtils
 
 
-class SocialRobot(VoiceRecognitionUtils,LLMUtils):
+class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
 
     def __init__(self, config, **kwargs):
         atexit.register(self.on_exit)
+
         VoiceRecognitionUtils.__init__(self)
         LLMUtils.__init__(self)
+        RotationUtils.__init__(self)
 
         # detection values
         self.objects_that_can_be_detected = []
@@ -33,7 +37,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         self.camera_index = 0
         self.save_directory = "./"
 
-        self.home_position = [-11.5, -55, -33, 0, 88, -11, 0]
+        self.home_position = [-11.5, -55, -33, 0, 88, 169, 0]
         self.base_tip_position = [12.9,10.5,-35.1,-2,25.2,15.4,0]
 
         self.camera_size = [640,480]
@@ -41,7 +45,8 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         self.base_tip_xyz_dff_corner = [379.3-170.9,84.2+97.1,0-282.4]
         cone_size = 15
         gripper_offset = 15
-        self.base_tip_xyz_dff_center = [(407.4-330),(82.2-107.6)+gripper_offset,(9.6-295.4)-cone_size]
+        self.base_tip_xyz_dff_center = [(407.4-330),(82.2-87.6)+gripper_offset,(9.6-295.4)-cone_size]
+        self.offset_x, self.offset_y = 1.5,0
         self.tip_camera_distance = []
         self.camera_top_left_adjust = []
         self.camera_center_adjust = []
@@ -247,7 +252,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
                 print("❌ No chessboard found.")
 
     def move_tip_to_base(self, base_tip_xyz_dff):
-
+        print("Moving tip to base.")
         initial_position = self.arm.get_position()
         print(f"This is the current position: {initial_position[1]}")
         x,y,z = base_tip_xyz_dff
@@ -353,16 +358,18 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         # Define colors for each class
         colors = {}
         print(f"Searching for {objects_to_find}")
-        print("Result:")
-        print(results)
+        #print("Result:")
+        #print(results)
         # Draw the detected bounding boxes
         for result in results:
             names = [result.names[cls.item()] for cls in result.boxes.cls.int()]
 
             for i, (xyxy, conf, cls) in enumerate(zip(result.boxes.xyxy, result.boxes.conf, result.boxes.cls.int())):
 
-                if names[i].lower() in objects_to_find and conf > 0.5:
-
+                if names[i].lower() in objects_to_find and conf > 0.4:
+                    print("################################################")
+                    print("Found matching object")
+                    print("################################################")
                     x1, y1, x2, y2 = map(int, xyxy.tolist())  # Convert to integers
 
                     bboxes.append([x1, y1, x2, y2])
@@ -399,6 +406,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             plt.imshow(image)
             plt.axis("off")
             plt.show()
+        print("result of search is: ")
         print(bboxes,labels)
         return bboxes, labels, found_with_search
 
@@ -429,7 +437,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
 
 
-    def align_with_center_of_bbox(self, bbox, rotate=False):
+    def align_with_center_of_bbox(self, bbox, object, rotate=False, objects_to_find=[]):
         """
         Aligns camera with the center of the given bounding box.
 
@@ -449,9 +457,39 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             img = cv2.imread("DetectionImage.jpg")
             self.save_image_bbox(bbox, img, "SampleImagesForBBox/DetectionImageBBox.jpg")
             img = cv2.imread("SampleImagesForBBox/DetectionImageBBox.jpg")
-            angle = self.calculate_rotation(img)
+            best_rotation, smallest_distance, rotation_of_gripper = self.find_best_rotation(img,object)
+            angle = rotation_of_gripper
+
+            print("Centering before grabbing!")
+            x, y = self.calculate_rotation_offset(angle, self.offset_x, self.offset_y)
+            print(f"New offset at 90°: x = {x:.2f} cm, y = {y:.2f} cm")
+
+            initial_position = self.arm.get_position()
+            x_, y_, z, roll, pitch, yaw = initial_position[1]
+
+            x, y = x*10 + x_, y*10 + y_
+            self.move_x_y(x, y)
+
             print(f"Rotating to angle {angle}")
             self.rotate_camera(angle)
+
+
+
+    def calculate_rotation_offset(self,angle_deg, offset_x, offset_y):
+            """
+            Calculates the new x, y position of an offset point after rotating by angle_deg.
+
+            :param angle_deg: The rotation angle in degrees (positive = counterclockwise)
+            :param offset_x: The original x offset from the center of rotation
+            :param offset_y: The original y offset from the center of rotation
+            :return: (new_x, new_y) position of the offset after rotation
+            """
+            angle_rad = math.radians(angle_deg)
+
+            new_x = offset_x * math.cos(angle_rad) - offset_y * math.sin(angle_rad)
+            new_y = offset_x * math.sin(angle_rad) + offset_y * math.cos(angle_rad)
+
+            return new_x, new_y
 
 
 
@@ -468,81 +506,12 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             "z": z,
             "roll": roll,
             "pitch": pitch,
-            "yaw": (yaw+abs(angle)) % 180,
+            "yaw": 180-angle,
             "speed": 100,  # Moderate speed
             "wait": True
         }
 
         self.move_robot(movement)
-
-    def calculate_rotation(self, image):
-        if image is None:
-            print("Error: Image not found.")
-            return 0
-
-        # Use blue channel for contrast
-        blue_channel = image[:, :, 0]
-        _, binary_image = cv2.threshold(blue_channel, 60, 255, cv2.THRESH_BINARY)
-
-        # Skeleton + distance transform
-        skeleton, distance = medial_axis(binary_image > 0, return_distance=True)
-
-        mask = skeleton & (distance > 0)
-        if not np.any(mask):
-            print("No skeleton detected.")
-            return 0
-
-        # Find thinnest point on skeleton
-        min_dist = np.min(distance[mask])
-        coords = np.column_stack(np.where((distance == min_dist) & mask))
-        cy, cx = coords[0]
-        radius = min_dist
-
-        # Estimate local direction with gradient
-        sobelx = cv2.Sobel(distance, cv2.CV_64F, 1, 0, ksize=3)
-        sobely = cv2.Sobel(distance, cv2.CV_64F, 0, 1, ksize=3)
-
-        dx = sobelx[cy, cx]
-        dy = sobely[cy, cx]
-
-        if dx == 0 and dy == 0:
-            dx, dy = 1, 0  # fallback
-
-        norm = math.hypot(dx, dy)
-        dx /= norm
-        dy /= norm
-
-        # Get the endpoints of the shortest cross-section line
-        x1 = int(cx - radius * dx)
-        y1 = int(cy - radius * dy)
-        x2 = int(cx + radius * dx)
-        y2 = int(cy + radius * dy)
-
-        angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
-
-        # === Rotate the image based on the computed angle ===
-        (h, w) = image.shape[:2]
-        center = (w // 2, h // 2)
-
-        # Rotate image so the thinnest part aligns horizontally
-        rotation_matrix = cv2.getRotationMatrix2D(center, -angle, 1.0)
-        rotated = cv2.warpAffine(image, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                 borderValue=(255, 255, 255))
-
-        # Show the rotated image
-        plt.title(f"Rotated Image ({-angle:.2f}°)")
-        plt.imshow(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
-        plt.axis("off")
-        plt.show()
-
-        print(f"🌀 True thinnest cross-section angle: {angle:.2f}°")
-        return angle
-
-    def get_angle_to_thinnest_side(self,img):
-
-        angle = 0
-
-        return angle
 
     def detect_objects_and_move_to_first(self,objects_to_find,**kwargs):
         try:
@@ -558,14 +527,15 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
                 return
 
             bbox = np.asarray(bboxes[0])
-
+            print(labels)
+            label = labels[0][0].lower()
             # Move camera center above the lemon and move the tip down to it
-            self.align_with_center_of_bbox(bbox)
+            self.align_with_center_of_bbox(bbox,label)
 
             # test to see
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
             bbox = np.asarray(bboxes[0])
-            self.align_with_center_of_bbox(bbox)
+            self.align_with_center_of_bbox(bbox,label)
 
             if found_with_search:
                 print("Found the object with search 2.")
@@ -574,7 +544,7 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,plot_detection=plot_detection,skip_search=skip_search)
             bbox = np.asarray(bboxes[0])
-            self.align_with_center_of_bbox(bbox, rotate=True)
+            self.align_with_center_of_bbox(bbox,label, rotate=True,objects_to_find=objects_to_find)
 
             if found_with_search:
                 print("Found the object with search 3.")
@@ -582,6 +552,8 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
 
             self.open_grabber()
             self.move_tip_to_base(self.base_tip_xyz_dff_center)
+            self.close_grabber()
+            time.sleep(1)
         except Exception as e:
             if not found_with_search:
                 print("Unable to find the selected object. Moving back to home position.")
@@ -594,11 +566,10 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
         self.return_to_home()
 
     def open_grabber(self):
-        self.arm.set_cgpio_digital(9, 1, delay_sec=0)
-
+        self.arm.set_tgpio_digital(0, 1, delay_sec=0)
 
     def close_grabber(self):
-        self.arm.set_cgpio_digital(9, 0, delay_sec=0)
+        self.arm.set_tgpio_digital(0, 0, delay_sec=0)
 
     def correct_perspective_distortion(self):
         """
@@ -698,22 +669,46 @@ class SocialRobot(VoiceRecognitionUtils,LLMUtils):
             self.move_x_y(x,y)
             bboxes, labels, found_with_search = self.detect_selected(objects_to_find,skip_search=True)
             if len(labels) != 0:
+                print(labels,objects_to_find)
                 for label in labels:
-                    if label[0] in objects_to_find:
+                    if label[0].lower() in objects_to_find:
                         grab_object = True
                         break
 
         if grab_object:
             self.detect_objects_and_move_to_first(objects_to_find,skip_search=True)
 
+    def place_down_in_direction(self,direction):
 
+        initial_position = self.arm.get_position()
+        print(f"This is the current position: {initial_position[1]}")
+
+        x, y, z, roll, pitch, yaw = initial_position[1]
+        x_, y_ = 0,0
+        if direction == "left":
+            y_ = 10
+        elif direction == "right":
+            y_ = -10
+        elif direction == "up":
+            x_ = 10
+        elif direction == "down":
+            x_ = -10
+
+        x_,y_ = x+x_,y+y_
+
+        self.move_x_y(x_,y_)
+        self.open_grabber()
+        self.move_tip_to_base(self.base_tip_xyz_dff_center)
+        self.close_grabber()
+        self.return_to_home()
     def execute_command(self,command):
         action_ = command.get("action", "")
         object_ = command.get("object", "")
         target_ = command.get("target", "")
         if object_.lower() == "lemon":
             self.detect_objects_and_move_to_first([object_.lower()],plot_detection=True)
-
+            if action_.lower() in ["left","right","up","down"]:
+                self.place_down_in_direction(action_)
 
     def check_for_command(self):
         try:
@@ -785,33 +780,39 @@ def test_warp():
     plt.imshow(img)
     plt.show()
 
+def test_grab_any():
+    #Robot.calibrate_position()
+    Robot.detect_objects_and_move_to_first(["lemon","cucumber","strawberry","pear","peach","palm","mandarin","yellow bell pepper","red bell pepper"],plot_detection=True)
+
+
 def test_grab_lemon():
     #Robot.calibrate_position()
-    Robot.detect_objects_and_move_to_first(["lemon"],plot_detection=True)
+    Robot.detect_objects_and_move_to_first(["lemon"],plot_detection=False)
 
 def listen_test():
     Robot.wait_for_command()
 
 def test_board_check():
-    Robot.check_board_for_object(["Lemon"])
+    Robot.check_board_for_object(["lemon"])
 
 init_config = {
     "ip": "192.168.65.203",
-    "model_path": "runs/detect/train12/weights/best.pt",
+    "model_path": "runs/detect/train28/weights/best.pt",
 }
 
 
-Robot = SocialRobot(init_config,skip_connection=False)
+Robot = SocialRobot(init_config, skip_connection=False)
 
 #Robot.find_camera_indices()
 
 #listen_test()
 #test_board_check()
-test_grab_lemon()
+#test_grab_lemon()
+test_grab_any()
 
 #img = cv2.imread("SampleImagesForBBox/DetectionImageBBox.jpg")
 #print(Robot.calculate_rotation(img))
 
 #test_calibrate()
 #test_warp()
-Robot.arm.disconnect()
+#Robot.arm.disconnect()
