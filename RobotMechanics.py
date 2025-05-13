@@ -15,9 +15,10 @@ import math
 from Utils.RotationUtils import RotationUtils
 from Utils.VoiceRecognitionUtils import VoiceRecognitionUtils
 from Utils.LLMUtils import LLMUtils
+from Utils.TextRecognitionUtils import TextRecognitionUtils
+from tests.tests import *
 
-
-class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
+class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils,TextRecognitionUtils):
 
     def __init__(self, config, **kwargs):
         atexit.register(self.on_exit)
@@ -25,6 +26,7 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
         VoiceRecognitionUtils.__init__(self)
         LLMUtils.__init__(self)
         RotationUtils.__init__(self)
+        TextRecognitionUtils.__init__(self)
 
         # detection values
         self.objects_that_can_be_detected = []
@@ -51,7 +53,7 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
         self.camera_top_left_adjust = []
         self.camera_center_adjust = []
         skip_connection = kwargs.get("skip_connection",False)
-
+        self.skip_connection = skip_connection
         # set from prior calibration
         self.mm_per_pixel = 0.6724
 
@@ -341,6 +343,94 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
             wait=movement["wait"]
         )
 
+
+    def find_and_execute_all_commands_on_board(self, **kwargs):
+
+        plot_detection = kwargs.get("plot_detection", False)
+        image_path = kwargs.get("image", None)  # User-provided image path
+        image_name = kwargs.get("image_name", "DetectionImage.jpg")
+
+        if image_path is None:
+            image_path = self.take_picture(img_name=image_name)
+
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"❌ Error: Could not load image from {image_path}")
+            return
+
+        bboxes, labels = self.detect_all_objects(image=image_path, plot_detection=plot_detection)
+
+        self.find_texts(image)
+        print(self.commands)
+        assignments = self.assign_detections_to_commands(bboxes,labels)
+        if plot_detection:
+            self.visualize_commands(image,bboxes,labels)
+            self.visualize_assignments_with_arrows(image,assignments)
+
+
+    def detect_all_objects(self, **kwargs):
+        """
+        Detects all objects in a camera frame or a provided image using YOLO and returns bounding boxes and labels.
+
+        Args:
+            kwargs:
+                - plot_detection (bool): If True, shows a matplotlib plot of the detections.
+                - confidence_threshold (float): Minimum confidence to accept a detection.
+                - image_name (str): Filename to save if capturing from camera.
+                - image (str): Optional image path to load instead of capturing.
+
+        Returns:
+            Tuple:
+                - bboxes (List[List[int]]): Bounding boxes [x1, y1, x2, y2].
+                - labels (List[str]): Detected class labels.
+        """
+        bboxes = []
+        labels = []
+
+        confidence_threshold = kwargs.get("confidence_threshold", 0.4)
+        plot_detection = kwargs.get("plot_detection", False)
+        image_path = kwargs.get("image", None)  # User-provided image path
+        image_name = kwargs.get("image_name", "DetectionImage.jpg")
+
+        if image_path is None:
+            image_path = self.take_picture(img_name=image_name)
+
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"❌ Error: Could not load image from {image_path}")
+            return [], []
+
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.model(image_path)
+        colors = {}
+
+        for result in results:
+            names = [result.names[cls.item()] for cls in result.boxes.cls.int()]
+            for i, (xyxy, conf, cls) in enumerate(zip(result.boxes.xyxy, result.boxes.conf, result.boxes.cls.int())):
+                if conf < confidence_threshold:
+                    continue
+
+                x1, y1, x2, y2 = map(int, xyxy.tolist())
+                bboxes.append([x1, y1, x2, y2])
+                labels.append(names[i])
+
+                if plot_detection:
+                    label_text = f"{names[i]} {conf:.2f}"
+                    if names[i] not in colors:
+                        colors[names[i]] = tuple(np.random.randint(0, 255, 3).tolist())
+                    color = colors[names[i]]
+                    cv2.rectangle(image_rgb, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(image_rgb, label_text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        if plot_detection:
+            plt.figure(figsize=(12, 8))
+            plt.imshow(image_rgb)
+            plt.axis("off")
+            plt.title("All Detected Objects")
+            plt.show()
+
+        return bboxes, labels
+
     def detect_selected(self,objects_to_find,**kwargs):
         bboxes = []
         labels = []
@@ -435,8 +525,6 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
         else:
             print(f"❌ Failed to save image to {save_path}")
 
-
-
     def align_with_center_of_bbox(self, bbox, object, rotate=False, objects_to_find=[]):
         """
         Aligns camera with the center of the given bounding box.
@@ -473,8 +561,6 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
             print(f"Rotating to angle {angle}")
             self.rotate_camera(angle)
 
-
-
     def calculate_rotation_offset(self,angle_deg, offset_x, offset_y):
             """
             Calculates the new x, y position of an offset point after rotating by angle_deg.
@@ -490,8 +576,6 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
             new_y = offset_x * math.sin(angle_rad) + offset_y * math.cos(angle_rad)
 
             return new_x, new_y
-
-
 
     def rotate_camera(self,angle):
 
@@ -620,7 +704,8 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
 
     def return_to_home(self):
         # joint move
-        code = self.arm.set_servo_angle(angle=self.home_position, speed=100, wait=True, is_radian=False)
+        if not self.skip_connection or self.skip_connection is None:
+            code = self.arm.set_servo_angle(angle=self.home_position, speed=100, wait=True, is_radian=False)
 
     def calculate_movement(self, bbox):
         """
@@ -720,7 +805,6 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
         except Exception as e:
             print(f"Exception occurred: {e}")
 
-
     def wait_for_command(self):
         print("🎙️ Listening... Press 'q' to quit.")
 
@@ -756,9 +840,6 @@ class SocialRobot(VoiceRecognitionUtils, LLMUtils, RotationUtils):
         self.return_to_home()
 
 
-
-
-
 def test_move(config):
     Robot.move_robot(config["movement"])
     print(f"Moved robot to {config['movement']}")
@@ -771,29 +852,10 @@ def test_calculate_movement(config):
     print("From Parameters:\n")
     print(config["bbox"])
 
-def test_calibrate():
-    Robot.calibrate_position()
-
-def test_warp():
-    Robot.calibrate_position(skip_taking_picture=False)
-    img = Robot.correct_perspective_distortion()
-    plt.imshow(img)
-    plt.show()
-
-def test_grab_any():
-    #Robot.calibrate_position()
-    Robot.detect_objects_and_move_to_first(["lemon","cucumber","strawberry","pear","peach","palm","mandarin","yellow bell pepper","red bell pepper"],plot_detection=True)
 
 
-def test_grab_lemon():
-    #Robot.calibrate_position()
-    Robot.detect_objects_and_move_to_first(["lemon"],plot_detection=False)
-
-def listen_test():
-    Robot.wait_for_command()
-
-def test_board_check():
-    Robot.check_board_for_object(["lemon"])
+def execute_written_commands(img):
+    Robot.find_and_execute_all_commands_on_board(image=img, plot_detection=True)
 
 init_config = {
     "ip": "192.168.65.203",
@@ -801,14 +863,16 @@ init_config = {
 }
 
 
-Robot = SocialRobot(init_config, skip_connection=False)
+Robot = SocialRobot(init_config, skip_connection=True)
 
-#Robot.find_camera_indices()
+#Robot.find_camera_indices(Robot)
 
-#listen_test()
-#test_board_check()
-#test_grab_lemon()
-test_grab_any()
+#listen_test(Robot)
+#test_board_check(Robot)
+#test_grab_lemon(Robot)
+#test_grab_any(Robot)
+
+execute_written_commands("SR_Datasets/Other/T3.jpg")
 
 #img = cv2.imread("SampleImagesForBBox/DetectionImageBBox.jpg")
 #print(Robot.calculate_rotation(img))
